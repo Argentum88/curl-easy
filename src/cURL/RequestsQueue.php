@@ -16,9 +16,9 @@ class RequestsQueue extends EventDispatcher implements RequestsQueueInterface, \
     protected $mh;
 
     /**
-     * @var int Amount of requests running
+     * @var int flag to tell whether the operations are still running
      */
-    protected $runningCount = 0;
+    protected $active = 0;
 
     /**
      * @var Request[] Array of requests attached
@@ -197,20 +197,9 @@ class RequestsQueue extends EventDispatcher implements RequestsQueueInterface, \
                 $this->running[$request->getUID()] = $request;
             }
 
-            while (curl_multi_exec($this->mh, $this->runningCount) === CURLM_CALL_MULTI_PERFORM || $this->runningCount);
+            while (curl_multi_exec($this->mh, $this->active) === CURLM_CALL_MULTI_PERFORM);
 
             $this->read();
-            /*
-            $runningBefore = $this->runningCount;
-            do {
-                $mrc = curl_multi_exec($this->mh, $this->runningCount);
-            } while ($mrc === CURLM_CALL_MULTI_PERFORM);
-            $runningAfter = $this->runningCount;
-
-            if ($runningAfter < $runningBefore) {
-                $this->read();
-            }
-            */
 
             $notRunning = $this->getRequestsNotRunning();
         } while (count($notRunning) > 0);
@@ -235,6 +224,15 @@ class RequestsQueue extends EventDispatcher implements RequestsQueueInterface, \
         if ($this->count() == 0) {
             throw new Exception('Cannot select if there are no requests in queue.');
         }
-        return curl_multi_select($this->mh, $timeout) !== -1;
+
+        $ret = -1;
+        if ($this->active && ($ret = curl_multi_select($this->mh, $timeout)) === -1) {
+            // Perform a usleep if a select returns -1.
+            // See: https://bugs.php.net/bug.php?id=61141
+            usleep(250);
+        }
+
+        return $ret !== -1;
+        //return curl_multi_select($this->mh, $timeout) !== -1;
     }
 }
